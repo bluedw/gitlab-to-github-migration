@@ -1,0 +1,71 @@
+{
+  "gitlab": {
+    "url": "https://gitlab.com",
+    "token": "YOUR_GITLAB_PERSONAL_ACCESS_TOKEN"
+  },
+  "github": {
+    "token": "YOUR_GITHUB_PERSONAL_ACCESS_TOKEN",
+    "organization": ""
+  },
+  "scan_groups": [
+    {
+      "group_id": "",
+      "group_path": "icis/rater",
+      "include_subgroups": true,
+      "naming_rule": "project_name",
+      "default_private": true,
+      "default_collaborators": [
+        {
+          "username": "user1",
+          "permission": "push"
+        },
+        {
+          "username": "user2",
+          "permission": "pull"
+        }
+      ],
+      "default_teams": [
+        {
+          "team_slug": "developers",
+          "permission": "push"
+        }
+      ]
+    }
+  ],
+  "repositories": [
+    {
+      "gitlab_project_id": "12345678",
+      "gitlab_project_path": "group/project-name",
+      "github_repo_name": "new-repo-name",
+      "description": "Repository description",
+      "private": true,
+      "collaborators": [
+        {
+          "username": "user1",
+          "permission": "push"
+        },
+        {
+          "username": "user2",
+          "permission": "admin"
+        }
+      ],
+      "teams": [
+        {
+          "team_slug": "core-team",
+          "permission": "admin"
+        },
+        {
+          "team_slug": "contributors",
+          "permission": "push"
+        }
+      ]
+    }
+  ],
+  "options": {
+    "clone_method": "https",
+    "preserve_branches": true,
+    "preserve_tags": true,
+    "dry_run": false,
+    "verify_ssl": true
+  }
+}
