@@ -9,6 +9,7 @@ GitLab 저장소를 GitHub로 일괄 이관하는 Python 도구입니다. **표�
 - 📁 **그룹 자동 스캔**: GitLab 그룹을 스캔하여 모든 프로젝트 자동 검색
 - 📋 **프로젝트 목록 조회**: 그룹 내 모든 프로젝트 정보를 터미널과 로그로 출력
 - 🌿 **완전한 히스토리 보존**: 모든 커밋, 브랜치, 태그 유지
+- 🏷️ **GitLab namespace 추적**: GitLab subgroup/namespace ID를 GitHub topic으로 자동 등록
 - 🔒 **안전한 인증**: 설정 파일로 토큰 관리
 - 🎯 **Organization 지원**: 개인/조직 계정 모두 지원
 - 👥 **권한 자동 부여**: Collaborators와 Teams에게 자동으로 저장소 권한 부여
@@ -85,10 +86,46 @@ cp config.example.json config.json
 
 1. GitHub에 로그인
 2. Settings → Developer settings → Personal access tokens → Tokens (classic)
-3. 다음 권한 선택:
-   - `repo` (전체)
-   - `delete_repo` (선택사항)
-4. 토큰 생성 후 복사
+3. **필요한 권한(Scopes) 선택:**
+
+#### 필수 권한
+
+**기본 마이그레이션용:**
+- ✅ `repo` (전체 저장소 접근)
+  - `repo:status` - 저장소 상태 확인
+  - `repo_deployment` - 배포 상태 접근
+  - `public_repo` - 공개 저장소 접근
+  - `repo:invite` - 저장소 초대
+  - `security_events` - 보안 이벤트 읽기
+
+**GitLab namespace를 GitHub topic으로 추가하려면:**
+- ✅ `repo` scope 필요 (위 권한에 포함됨)
+  - Topics API는 `repo` scope가 있어야 사용 가능
+  - **주의**: `public_repo`만으로는 부족하며 전체 `repo` scope 필요
+
+#### 선택적 권한
+
+**저장소 삭제 기능 사용 시 (cleanup_github.py):**
+- ☑️ `delete_repo` - 저장소 삭제 권한
+  - 이 권한이 없으면 cleanup_github.py 실행 불가
+  - 재이관이 필요한 경우에만 활성화 권장
+
+**Organization 저장소 이관 시:**
+- ☑️ `read:org` - Organization 정보 읽기
+  - Organization 저장소 생성 시 필요
+  - Teams에 권한 부여 시 필요
+
+#### 권한 부족 시 발생하는 오류
+
+- **"OAuth token does not meet scope requirement"**
+  - Topics API 호출 시: `repo` scope 필요
+  - 해결: 전체 `repo` scope로 새 토큰 생성
+
+- **"Not Found" or "403 Forbidden"**
+  - Organization 접근 시: `read:org` scope 필요
+  - 저장소 삭제 시: `delete_repo` scope 필요
+
+4. 토큰 생성 후 복사 및 안전하게 보관
 
 ### 4. config.json 편집
 
@@ -278,6 +315,26 @@ python migrate.py
 ```bash
 python migrate.py
 ```
+
+### 마이그레이션 시 자동 수행 작업
+
+마이그레이션 도구는 각 저장소를 이관할 때 다음 작업을 자동으로 수행합니다:
+
+1. **GitLab 저장소 클론** - 모든 브랜치와 태그 포함
+2. **GitHub 저장소 생성** - 지정된 이름과 설정으로 생성
+3. **권한 부여** - Collaborators 및 Teams 권한 자동 설정
+4. **GitLab namespace topic 추가** - GitLab subgroup/namespace ID를 GitHub topic으로 등록
+   - 형식: `gitlab-ns-{namespace_id}` (예: `gitlab-ns-12345`)
+   - 목적: GitLab 원본 위치 추적 및 저장소 그룹화
+   - **필수 권한**: GitHub 토큰에 `repo` scope 필요
+   - 권한 부족 시: topic 추가는 실패하지만 마이그레이션은 계속 진행
+5. **Git 히스토리 푸시** - 모든 커밋, 브랜치, 태그 푸시
+
+#### GitLab namespace topic 활용 예시
+
+- **원본 그룹별 필터링**: GitHub에서 `gitlab-ns-123`으로 검색하여 동일 GitLab 그룹에서 온 저장소 찾기
+- **자동화 스크립트**: topic을 기반으로 특정 GitLab 그룹 출신 저장소에 일괄 작업 수행
+- **문서화**: 각 저장소의 GitLab 원본 위치 기록 유지
 
 ## 프로젝트 목록 조회 (list_projects.py)
 
