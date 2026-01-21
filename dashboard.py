@@ -315,7 +315,7 @@ class MigrationDashboard:
                             'gitlab_project': gl_project['path_with_namespace'],
                             'github_repository': f"{self.github_owner}/{github_repo_name}",
                             'branch': branch['name'],
-                            'gitlab_commit': branch['commit']['short_id'],
+                            'gitlab_commit': branch['commit']['short_id'][:7],  # 7자리로 통일
                             'github_commit': '-',
                             'status': 'not created'
                         })
@@ -328,12 +328,12 @@ class MigrationDashboard:
 
                     for gl_branch in gl_branches:
                         branch_name = gl_branch['name']
-                        gl_commit = gl_branch['commit']['short_id']
+                        gl_commit = gl_branch['commit']['short_id'][:7]  # 7자리로 통일
 
                         gh_branch = gh_branch_dict.get(branch_name)
                         if gh_branch:
                             gh_commit = gh_branch['commit']['sha'][:7]
-                            # 커밋 비교 (short_id 기준)
+                            # 커밋 비교 (7자리 기준)
                             if gl_commit != gh_commit:
                                 status = 'sync needed'
                                 repo_status = 'sync needed'
@@ -383,6 +383,18 @@ class MigrationDashboard:
         """HTML 대시보드 생성"""
         now = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
 
+        # GitLab 그룹 정보 수집
+        scan_groups = self.config.get('scan_groups', [])
+        groups_info = ""
+        if scan_groups:
+            groups_list = []
+            for group in scan_groups:
+                group_path = group.get('group_path') or group.get('group_id', 'Unknown')
+                include_subgroups = group.get('include_subgroups', True)
+                subgroups_text = " (서브그룹 포함)" if include_subgroups else ""
+                groups_list.append(f"{group_path}{subgroups_text}")
+            groups_info = f"<div class=\"subtitle\">GitLab 그룹: {', '.join(groups_list)}</div>"
+
         html_content = f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
@@ -425,6 +437,14 @@ class MigrationDashboard:
         .header .subtitle {{
             color: #666;
             font-size: 14px;
+            margin-top: 5px;
+        }}
+
+        .header .subtitle:first-of-type {{
+            color: #555;
+            font-size: 15px;
+            font-weight: 500;
+            margin-bottom: 8px;
         }}
 
         .stats-grid {{
@@ -596,24 +616,25 @@ class MigrationDashboard:
     <div class="container">
         <div class="header">
             <h1>GitLab to GitHub Migration Dashboard</h1>
+            {groups_info}
             <div class="subtitle">마지막 업데이트: {html.escape(now)}</div>
         </div>
 
         <div class="stats-grid">
             <div class="stat-card total">
-                <div class="label">전체 대상</div>
+                <div class="label">전체 저장소</div>
                 <div class="value">{statistics['total']}</div>
             </div>
             <div class="stat-card completed">
-                <div class="label">이관 완료</div>
+                <div class="label">이관 완료 저장소</div>
                 <div class="value">{statistics['completed']}</div>
             </div>
             <div class="stat-card not-created">
-                <div class="label">이관 대상 미완료</div>
+                <div class="label">미완료 저장소</div>
                 <div class="value">{statistics['not_created']}</div>
             </div>
             <div class="stat-card sync-needed">
-                <div class="label">동기화 필요</div>
+                <div class="label">동기화 필요 저장소</div>
                 <div class="value">{statistics['sync_needed']}</div>
             </div>
         </div>
@@ -788,10 +809,10 @@ def main():
                 print("  ℹ API를 다시 조회하려면 --refresh 옵션을 사용하세요.")
 
                 print("\n=== 통계 요약 ===")
-                print(f"전체 대상: {statistics['total']}")
-                print(f"이관 완료: {statistics['completed']}")
-                print(f"이관 대상 미완료: {statistics['not_created']}")
-                print(f"동기화 필요: {statistics['sync_needed']}")
+                print(f"전체 저장소: {statistics['total']}")
+                print(f"이관 완료 저장소: {statistics['completed']}")
+                print(f"미완료 저장소: {statistics['not_created']}")
+                print(f"동기화 필요 저장소: {statistics['sync_needed']}")
 
                 # HTML 생성을 위해 임시 dashboard 객체 생성
                 dashboard = MigrationDashboard(config_path)
@@ -804,10 +825,10 @@ def main():
         details, statistics = dashboard.check_migration_status()
 
         print("\n=== 통계 요약 ===")
-        print(f"전체 대상: {statistics['total']}")
-        print(f"이관 완료: {statistics['completed']}")
-        print(f"이관 대상 미완료: {statistics['not_created']}")
-        print(f"동기화 필요: {statistics['sync_needed']}")
+        print(f"전체 저장소: {statistics['total']}")
+        print(f"이관 완료 저장소: {statistics['completed']}")
+        print(f"미완료 저장소: {statistics['not_created']}")
+        print(f"동기화 필요 저장소: {statistics['sync_needed']}")
 
         dashboard.generate_html_dashboard(details, statistics, output_path)
 
