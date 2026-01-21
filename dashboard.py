@@ -111,9 +111,10 @@ class GitLabAPI:
 class GitHubAPI:
     """GitHub API 클라이언트"""
 
-    def __init__(self, token: str):
+    def __init__(self, token: str, verify_ssl: bool = True):
         self.token = token
         self.api_url = "https://api.github.com"
+        self.verify_ssl = verify_ssl
 
     def _make_request(self, endpoint: str) -> Dict:
         """API 요청 수행"""
@@ -126,9 +127,17 @@ class GitHubAPI:
         request = urllib.request.Request(url, headers=headers)
 
         try:
-            with urllib.request.urlopen(request, timeout=30) as response:
-                response_data = response.read().decode('utf-8')
-                return json.loads(response_data) if response_data else {}
+            # SSL 검증 설정
+            import ssl
+            if not self.verify_ssl:
+                context = ssl._create_unverified_context()
+                with urllib.request.urlopen(request, context=context, timeout=30) as response:
+                    response_data = response.read().decode('utf-8')
+                    return json.loads(response_data) if response_data else {}
+            else:
+                with urllib.request.urlopen(request, timeout=30) as response:
+                    response_data = response.read().decode('utf-8')
+                    return json.loads(response_data) if response_data else {}
         except urllib.error.HTTPError as e:
             if e.code == 404:
                 return None  # 저장소 없음
@@ -155,14 +164,27 @@ class GitHubAPI:
             request = urllib.request.Request(url, headers=headers)
 
             try:
-                with urllib.request.urlopen(request, timeout=30) as response:
-                    results = json.loads(response.read().decode('utf-8'))
-                    if not results:
-                        break
-                    all_results.extend(results)
-                    if len(results) < per_page:
-                        break
-                    page += 1
+                # SSL 검증 설정
+                import ssl
+                if not self.verify_ssl:
+                    context = ssl._create_unverified_context()
+                    with urllib.request.urlopen(request, context=context, timeout=30) as response:
+                        results = json.loads(response.read().decode('utf-8'))
+                        if not results:
+                            break
+                        all_results.extend(results)
+                        if len(results) < per_page:
+                            break
+                        page += 1
+                else:
+                    with urllib.request.urlopen(request, timeout=30) as response:
+                        results = json.loads(response.read().decode('utf-8'))
+                        if not results:
+                            break
+                        all_results.extend(results)
+                        if len(results) < per_page:
+                            break
+                        page += 1
             except urllib.error.HTTPError as e:
                 if e.code == 404:
                     return []
@@ -192,7 +214,16 @@ class MigrationDashboard:
             self.config['gitlab']['url'],
             self.config['gitlab']['token']
         )
-        self.github = GitHubAPI(self.config['github']['token'])
+
+        # SSL 검증 설정
+        verify_ssl = self.config.get('options', {}).get('verify_ssl', True)
+        if not verify_ssl:
+            print("⚠ SSL 검증이 비활성화되어 있습니다. (보안 위험)")
+
+        self.github = GitHubAPI(
+            self.config['github']['token'],
+            verify_ssl=verify_ssl
+        )
         self.github_user = self.github.get_user()
         self.github_owner = self.config['github'].get('organization') or self.github_user['login']
 
