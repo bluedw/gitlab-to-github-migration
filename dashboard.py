@@ -7,12 +7,22 @@ GitLab to GitHub Migration Dashboard
 import json
 import os
 import sys
+import io
 import urllib.request
 import urllib.parse
 import urllib.error
 from typing import Dict, List, Optional, Tuple
 import datetime
 import html
+
+
+# Windows 콘솔 UTF-8 인코딩 설정 (UnicodeEncodeError 방지)
+if sys.platform == 'win32':
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    except Exception:
+        pass  # 이미 재설정된 경우 무시
 
 
 class GitLabAPI:
