@@ -975,7 +975,7 @@ class GitLabToGitHubMigrator:
 
     def _add_gitlab_namespace_topic(self, gh_repo: Dict, gl_project: Dict):
         """
-        GitLab namespace ID를 GitHub topic으로 추가
+        GitLab 서브그룹 경로를 GitHub topic으로 추가
 
         Args:
             gh_repo: GitHub 저장소 정보
@@ -990,19 +990,23 @@ class GitLabToGitHubMigrator:
         try:
             # GitLab namespace 정보 가져오기
             namespace = gl_project.get('namespace', {})
-            namespace_id = namespace.get('id')
+            namespace_path = namespace.get('full_path') or namespace.get('path')
             namespace_name = namespace.get('name', 'unknown')
 
-            if not namespace_id:
-                self.logger.warning(f"\nGitLab namespace ID를 찾을 수 없습니다. Topic 추가를 건너뜁니다.")
+            if not namespace_path:
+                self.logger.warning(f"\nGitLab namespace 경로를 찾을 수 없습니다. Topic 추가를 건너뜁니다.")
                 return
 
-            # topic 이름: gitlab-ns-{namespace_id}
-            topic_name = f"gitlab-ns-{namespace_id}"
+            # topic 이름: gitlab-{namespace_path} (슬래시를 하이픈으로 변환)
+            # 예: icis/rater -> gitlab-icis-rater
+            topic_name = f"gitlab-{namespace_path.replace('/', '-')}"
 
             # GitHub topic 규칙: 소문자, 숫자, 하이픈만 가능, 최대 50자
-            # 이미 규칙을 만족하지만 안전하게 소문자로 변환
             topic_name = topic_name.lower()
+
+            # 50자 제한
+            if len(topic_name) > 50:
+                topic_name = topic_name[:50].rstrip('-')
 
             if is_dry_run:
                 self.logger.info(f"\n[DRY RUN] GitLab namespace topic 추가 예정: {topic_name} (namespace: {namespace_name})")
@@ -1178,8 +1182,9 @@ class GitLabToGitHubMigrator:
                 fail_count += 1
 
             # 다음 저장소 이관 전 대기 (API rate limit 고려)
+            # Git push 후 이미 3초 대기했으므로 추가 대기는 1초만
             if idx < len(repositories):
-                time.sleep(2)
+                time.sleep(1)
 
         # 최종 결과 출력
         self.logger.info(f"\n{'='*60}")

@@ -19,7 +19,7 @@ GitLab 저장소를 GitHub로 일괄 이관하는 Python 도구입니다. **표�
 
 ## 제공 도구
 
-이 프로젝트는 6개의 독립 실행 도구를 제공합니다:
+이 프로젝트는 7개의 독립 실행 도구를 제공합니다:
 
 1. **list_projects.py** - GitLab 그룹 프로젝트 목록 조회
    - 그룹 하위의 모든 프로젝트 정보를 터미널에 출력
@@ -34,18 +34,26 @@ GitLab 저장소를 GitHub로 일괄 이관하는 Python 도구입니다. **표�
 3. **migrate.py** - 실제 마이그레이션
    - GitLab → GitHub 저장소 이관
    - Dry run 모드 지원
+   - 성능 최적화 (저장소 간 대기 시간 단축)
 
 4. **check_sync.py** - 동기화 상태 확인
    - GitLab vs GitHub 브랜치/태그 개수 비교
    - 각 브랜치별 커밋 상태 확인
    - Behind 상세정보 (커밋 차이, 커밋 목록)
 
-5. **dashboard.py** - 이관 대시보드 ✨ NEW
+5. **dashboard.py** - 이관 대시보드
    - 이관 상태를 HTML 대시보드로 시각화
    - 브랜치별 상태 확인 (completed, not created, sync needed)
    - 통계 요약 및 필터링 기능
+   - GitLab 그룹 정보 표시
 
-6. **cleanup_github.py** - GitHub 저장소 일괄 삭제 ⚠️
+6. **dashboard_server.py** - 대시보드 웹 서버 ✨ NEW
+   - 웹에서 refresh/migrate 버튼으로 실행 가능
+   - 백그라운드 마이그레이션 지원
+   - 자동 상태 확인 및 업데이트
+   - 표준 라이브러리만 사용 (http.server)
+
+7. **cleanup_github.py** - GitHub 저장소 일괄 삭제 ⚠️
    - 기존 GitHub 저장소들을 일괄 삭제
    - 재이관 전 정리 작업
    - 안전 확인 절차 포함
@@ -332,20 +340,22 @@ python migrate.py
 1. **GitLab 저장소 클론** - 모든 브랜치와 태그 포함
 2. **GitHub 저장소 생성** - 지정된 이름과 설정으로 생성
 3. **권한 부여** - Collaborators 및 Teams 권한 자동 설정
-4. **GitLab namespace topic 추가** - GitLab subgroup/namespace ID를 GitHub topic으로 등록
-   - 형식: `gitlab-ns-{namespace_id}` (예: `gitlab-ns-12345`)
-   - 목적: GitLab 원본 위치 추적 및 저장소 그룹화
+4. **GitLab 서브그룹 topic 추가** - GitLab 서브그룹 경로를 GitHub topic으로 등록
+   - 형식: `gitlab-{namespace_path}` (예: `gitlab-icis-rater`)
+   - 목적: GitLab 원본 그룹별로 저장소 그룹화 및 추적
    - **필수 권한**: GitHub 토큰에 `repo` scope 필요
    - 권한 부족 시: topic 추가는 실패하지만 마이그레이션은 계속 진행
+   - 50자 제한 초과 시 자동 트리밍
 5. **Git 히스토리 푸시** - 모든 커밋, 브랜치, 태그 푸시
 6. **결과 저장** - `migration_results.json`에 이관 결과 저장
 7. **대시보드 자동 생성** - 이관 완료 후 `dashboard.html` 자동 생성 (dry_run 제외)
 
-#### GitLab namespace topic 활용 예시
+#### GitLab 서브그룹 topic 활용 예시
 
-- **원본 그룹별 필터링**: GitHub에서 `gitlab-ns-123`으로 검색하여 동일 GitLab 그룹에서 온 저장소 찾기
+- **원본 그룹별 필터링**: GitHub에서 `gitlab-icis-rater`로 검색하여 동일 GitLab 그룹에서 온 저장소 찾기
 - **자동화 스크립트**: topic을 기반으로 특정 GitLab 그룹 출신 저장소에 일괄 작업 수행
-- **문서화**: 각 저장소의 GitLab 원본 위치 기록 유지
+- **문서화**: 각 저장소의 GitLab 원본 그룹 위치를 명확하게 기록
+- **팀별 관리**: 서브그룹 경로로 팀별 저장소를 쉽게 식별하고 관리
 
 ## 프로젝트 목록 조회 (list_projects.py)
 
@@ -821,12 +831,39 @@ python dashboard.py
 - 🔄 **자동 갱신 없음** - 대시보드는 정적 HTML이므로 최신 상태를 보려면 재실행 필요
 - 🔐 **권한 필요** - GitLab read_repository, GitHub repo 권한 필요
 
-### 웹 서버로 호스팅 (선택사항)
+### 웹에서 Refresh/Migrate 실행 ✨ NEW
 
-대시보드를 팀과 공유하려면 간단한 웹 서버로 호스팅할 수 있습니다:
+대시보드에서 직접 refresh와 migrate를 실행할 수 있습니다 (표준 라이브러리만 사용):
 
 ```bash
-# Python 내장 웹 서버 사용
+# 1. Dashboard 서버 시작
+python dashboard_server.py
+
+# 2. 브라우저에서 접속
+# http://localhost:8080
+
+# 3. 대시보드에서 버튼 클릭
+# - 🔄 대시보드 새로고침: API를 다시 조회하여 최신 상태 업데이트
+# - 🚀 마이그레이션 시작: 백그라운드에서 migrate.py 실행
+```
+
+**특징:**
+- 웹 브라우저에서 버튼 클릭만으로 실행 가능
+- 마이그레이션은 백그라운드에서 실행
+- 완료 시 자동으로 대시보드 업데이트
+- 서버 실행 여부 자동 감지 및 안내
+
+**주의:**
+- dashboard_server.py가 실행 중이어야 버튼 기능 사용 가능
+- 서버가 없으면 안내 메시지 표시
+- 마이그레이션은 30초마다 상태 확인 후 자동 새로고침
+
+### 웹 서버로 호스팅 (선택사항)
+
+대시보드를 팀과 공유하려면 위의 dashboard_server.py를 사용하거나, 단순 조회만 필요한 경우 정적 서버를 사용할 수 있습니다:
+
+```bash
+# 정적 파일만 제공 (버튼 기능 없음)
 python -m http.server 8000
 
 # 브라우저에서 열기

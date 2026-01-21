@@ -447,6 +447,79 @@ class MigrationDashboard:
             margin-bottom: 8px;
         }}
 
+        .header-actions {{
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }}
+
+        .action-btn {{
+            padding: 10px 20px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }}
+
+        .btn-refresh {{
+            background: #48bb78;
+            color: white;
+        }}
+
+        .btn-refresh:hover {{
+            background: #38a169;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(72, 187, 120, 0.3);
+        }}
+
+        .btn-migrate {{
+            background: #667eea;
+            color: white;
+        }}
+
+        .btn-migrate:hover {{
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(102, 126, 234, 0.3);
+        }}
+
+        .btn-refresh:disabled, .btn-migrate:disabled {{
+            background: #cbd5e0;
+            cursor: not-allowed;
+            transform: none;
+        }}
+
+        .status-message {{
+            margin-top: 10px;
+            padding: 10px 15px;
+            border-radius: 5px;
+            font-size: 14px;
+            display: none;
+        }}
+
+        .status-message.success {{
+            background: #c6f6d5;
+            color: #22543d;
+            border-left: 4px solid #48bb78;
+        }}
+
+        .status-message.error {{
+            background: #fed7d7;
+            color: #742a2a;
+            border-left: 4px solid #f56565;
+        }}
+
+        .status-message.info {{
+            background: #bee3f8;
+            color: #2c5282;
+            border-left: 4px solid #4299e1;
+        }}
+
         .stats-grid {{
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
@@ -618,6 +691,15 @@ class MigrationDashboard:
             <h1>GitLab to GitHub Migration Dashboard</h1>
             {groups_info}
             <div class="subtitle">마지막 업데이트: {html.escape(now)}</div>
+            <div class="header-actions">
+                <button class="action-btn btn-refresh" onclick="refreshDashboard()">
+                    🔄 대시보드 새로고침
+                </button>
+                <button class="action-btn btn-migrate" onclick="runMigration()">
+                    🚀 마이그레이션 시작
+                </button>
+            </div>
+            <div id="statusMessage" class="status-message"></div>
         </div>
 
         <div class="stats-grid">
@@ -716,6 +798,129 @@ class MigrationDashboard:
                 }
             }
         }
+
+        function showMessage(message, type) {
+            const statusDiv = document.getElementById('statusMessage');
+            statusDiv.textContent = message;
+            statusDiv.className = 'status-message ' + type;
+            statusDiv.style.display = 'block';
+
+            // 5초 후 자동 숨김 (error는 10초)
+            setTimeout(() => {
+                statusDiv.style.display = 'none';
+            }, type === 'error' ? 10000 : 5000);
+        }
+
+        function disableButtons(disabled) {
+            document.querySelector('.btn-refresh').disabled = disabled;
+            document.querySelector('.btn-migrate').disabled = disabled;
+        }
+
+        async function refreshDashboard() {
+            showMessage('대시보드를 새로고침하는 중...', 'info');
+            disableButtons(true);
+
+            try {
+                const response = await fetch('/api/refresh', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    showMessage('대시보드가 성공적으로 새로고침되었습니다. 페이지를 새로고침합니다...', 'success');
+                    setTimeout(() => {
+                        location.reload();
+                    }, 2000);
+                } else {
+                    showMessage('오류: ' + (data.message || '대시보드 새로고침 실패'), 'error');
+                    disableButtons(false);
+                }
+            } catch (error) {
+                showMessage('서버 연결 실패: dashboard_server.py가 실행 중인지 확인하세요.', 'error');
+                disableButtons(false);
+            }
+        }
+
+        async function runMigration() {
+            if (!confirm('마이그레이션을 시작하시겠습니까? 이 작업은 시간이 오래 걸릴 수 있습니다.')) {
+                return;
+            }
+
+            showMessage('마이그레이션을 시작하는 중...', 'info');
+            disableButtons(true);
+
+            try {
+                const response = await fetch('/api/migrate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'started') {
+                    showMessage('마이그레이션이 백그라운드에서 시작되었습니다. 완료되면 자동으로 업데이트됩니다.', 'success');
+
+                    // 30초마다 상태 확인하고 자동 새로고침
+                    checkMigrationStatus();
+                } else {
+                    showMessage('오류: ' + (data.message || '마이그레이션 시작 실패'), 'error');
+                    disableButtons(false);
+                }
+            } catch (error) {
+                showMessage('서버 연결 실패: dashboard_server.py가 실행 중인지 확인하세요.', 'error');
+                disableButtons(false);
+            }
+        }
+
+        let statusCheckInterval;
+        function checkMigrationStatus() {
+            let lastTimestamp = null;
+
+            statusCheckInterval = setInterval(async () => {
+                try {
+                    const response = await fetch('/api/status', {
+                        method: 'POST'
+                    });
+                    const data = await response.json();
+
+                    if (data.status === 'available') {
+                        const currentTimestamp = data.data.timestamp;
+
+                        // 타임스탬프가 변경되면 마이그레이션 완료
+                        if (lastTimestamp && lastTimestamp !== currentTimestamp) {
+                            clearInterval(statusCheckInterval);
+                            showMessage('마이그레이션이 완료되었습니다. 페이지를 새로고침합니다...', 'success');
+                            setTimeout(() => {
+                                location.reload();
+                            }, 2000);
+                        } else {
+                            lastTimestamp = currentTimestamp;
+                        }
+                    }
+                } catch (error) {
+                    console.error('상태 확인 실패:', error);
+                }
+            }, 30000); // 30초마다 확인
+        }
+
+        // 페이지 로드 시 서버 실행 여부 확인
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const response = await fetch('/api/status', {
+                    method: 'POST'
+                });
+                // 서버가 응답하면 버튼 활성화 (이미 활성화됨)
+            } catch (error) {
+                // 서버가 응답하지 않으면 안내 메시지 표시
+                showMessage('⚠️ 웹 기능을 사용하려면 터미널에서 "python dashboard_server.py"를 실행하세요.', 'info');
+            }
+        });
     </script>
 </body>
 </html>
