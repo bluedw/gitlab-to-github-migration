@@ -230,11 +230,64 @@ def load_config(config_path: str = "config.json") -> Dict:
         sys.exit(1)
 
 
-def get_repo_names_from_config(config: Dict) -> List[str]:
-    """config.json에서 저장소 이름 추출"""
+def get_repo_names_from_config(config: Dict, group_path_override: str = None, include_subgroups_override: bool = True) -> List[str]:
+    """
+    config.json에서 저장소 이름 추출
+
+    Args:
+        config: 설정 딕셔너리
+        group_path_override: 명령행에서 지정한 group_path (우선순위 높음)
+        include_subgroups_override: 명령행에서 지정한 include_subgroups (기본: True)
+    """
     repo_names = []
 
-    # scan_groups에서 프로젝트 이름 추출 (GitLab 스캔)
+    # 명령행 인자로 group_path가 제공되면 우선 사용
+    if group_path_override:
+        print(f"\n{Colors.CYAN}GitLab 그룹 스캔 중... (명령행 인자 사용){Colors.RESET}")
+
+        try:
+            scanner = GitLabScanner(
+                config['gitlab']['url'],
+                config['gitlab']['token']
+            )
+
+            # naming_rule은 config의 첫 번째 scan_groups에서 가져오거나 기본값 사용
+            naming_rule = 'project_name'
+            scan_groups_config = config.get('scan_groups', [])
+            if scan_groups_config:
+                naming_rule = scan_groups_config[0].get('naming_rule', 'project_name')
+
+            print(f"{Colors.CYAN}  그룹: {group_path_override}{Colors.RESET}")
+            print(f"{Colors.CYAN}  서브그룹 포함: {'예' if include_subgroups_override else '아니오'}{Colors.RESET}")
+
+            projects = scanner.get_group_projects(group_path_override, include_subgroups_override)
+
+            print(f"{Colors.GREEN}  {len(projects)}개의 프로젝트 발견{Colors.RESET}")
+
+            for project in projects:
+                # GitHub 저장소 이름 결정 (migrate.py와 동일한 로직)
+                if naming_rule == 'project_name':
+                    github_name = project['name']
+                elif naming_rule == 'path_with_namespace':
+                    github_name = project['path_with_namespace'].replace('/', '-')
+                else:
+                    github_name = project['name']
+
+                repo_names.append(github_name)
+
+        except Exception as e:
+            print(f"{Colors.RED}✗ GitLab 스캔 실패: {e}{Colors.RESET}")
+            print(f"{Colors.YELLOW}  -r 옵션으로 수동으로 저장소 이름을 지정하세요.{Colors.RESET}")
+            return []
+
+        # repositories에서 저장소 이름 추가 (선택적)
+        repositories = config.get('repositories', [])
+        for repo in repositories:
+            repo_names.append(repo['github_repo_name'])
+
+        return repo_names
+
+    # config.json의 scan_groups 사용
     scan_groups = config.get('scan_groups', [])
     if scan_groups:
         print(f"\n{Colors.CYAN}GitLab 그룹 스캔 중...{Colors.RESET}")
@@ -317,6 +370,8 @@ def main():
     config_path = "config.json"
     dry_run = False
     repo_names_manual = []
+    group_path_override = None
+    include_subgroups_override = True
 
     i = 1
     while i < len(sys.argv):
@@ -331,6 +386,14 @@ def main():
             # 쉼표로 구분된 저장소 이름
             repo_names_manual = sys.argv[i + 1].split(',')
             i += 2
+        elif arg in ['-g', '--group']:
+            # 그룹 경로 지정 (dashboard에서 전달)
+            group_path_override = sys.argv[i + 1]
+            i += 2
+        elif arg == '--no-subgroups':
+            # 서브그룹 포함하지 않음
+            include_subgroups_override = False
+            i += 1
         elif arg in ['-h', '--help']:
             print(f"""
 {Colors.CYAN}사용법:{Colors.RESET}
@@ -341,6 +404,9 @@ def main():
   -d, --dry-run          실제 삭제 안 함 (시뮬레이션)
   -r, --repos NAMES      삭제할 저장소 이름 (쉼표로 구분)
                          예: -r "repo1,repo2,repo3"
+  -g, --group PATH       GitLab 그룹 경로 지정 (config.json 대신 사용)
+                         예: -g "icis/rater"
+  --no-subgroups         서브그룹 포함하지 않음 (기본: 포함)
   -h, --help             도움말 표시
 
 {Colors.CYAN}예제:{Colors.RESET}
@@ -371,10 +437,12 @@ def main():
         repo_names = [name.strip() for name in repo_names_manual]
         print(f"{Colors.CYAN}수동 지정된 저장소: {len(repo_names)}개{Colors.RESET}")
     else:
-        repo_names = get_repo_names_from_config(config)
+        # group_path_override가 제공되면 우선 사용
+        repo_names = get_repo_names_from_config(config, group_path_override, include_subgroups_override)
         if not repo_names:
             print(f"{Colors.RED}✗ 삭제할 저장소가 없습니다.{Colors.RESET}")
             print(f"{Colors.YELLOW}  -r 옵션으로 저장소 이름을 지정하거나,{Colors.RESET}")
+            print(f"{Colors.YELLOW}  -g 옵션으로 그룹 경로를 지정하거나,{Colors.RESET}")
             print(f"{Colors.YELLOW}  config.json의 repositories를 설정하세요.{Colors.RESET}")
             sys.exit(1)
 

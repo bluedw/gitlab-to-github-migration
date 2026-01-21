@@ -488,10 +488,86 @@ class MigrationDashboard:
             box-shadow: 0 4px 6px rgba(102, 126, 234, 0.3);
         }}
 
-        .btn-refresh:disabled, .btn-migrate:disabled {{
+        .btn-cleanup {{
+            background: #e53e3e;
+            color: white;
+        }}
+
+        .btn-cleanup:hover {{
+            background: #c53030;
+            transform: translateY(-2px);
+            box-shadow: 0 4px 6px rgba(229, 62, 62, 0.3);
+        }}
+
+        .btn-refresh:disabled, .btn-migrate:disabled, .btn-cleanup:disabled {{
             background: #cbd5e0;
             cursor: not-allowed;
             transform: none;
+        }}
+
+        .config-inputs {{
+            margin-top: 15px;
+            padding: 15px;
+            background: #f7fafc;
+            border-radius: 5px;
+            border: 1px solid #e2e8f0;
+        }}
+
+        .input-group {{
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }}
+
+        .input-field {{
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }}
+
+        .input-field label {{
+            font-size: 12px;
+            color: #4a5568;
+            font-weight: 600;
+        }}
+
+        .input-field input {{
+            padding: 8px 12px;
+            border: 1px solid #cbd5e0;
+            border-radius: 4px;
+            font-size: 14px;
+            min-width: 250px;
+        }}
+
+        .input-field input::placeholder {{
+            color: #a0aec0;
+        }}
+
+        .input-field input:focus {{
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }}
+
+        .checkbox-field {{
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-top: 20px;
+        }}
+
+        .checkbox-field input[type="checkbox"] {{
+            width: 18px;
+            height: 18px;
+            cursor: pointer;
+        }}
+
+        .checkbox-field label {{
+            font-size: 14px;
+            color: #4a5568;
+            font-weight: 500;
+            cursor: pointer;
         }}
 
         .status-message {{
@@ -691,12 +767,29 @@ class MigrationDashboard:
             <h1>GitLab to GitHub Migration Dashboard</h1>
             {groups_info}
             <div class="subtitle">마지막 업데이트: {html.escape(now)}</div>
+
+            <div class="config-inputs">
+                <div class="input-group">
+                    <div class="input-field">
+                        <label for="groupPath">GitLab 그룹 경로 (Group Path)</label>
+                        <input type="text" id="groupPath" placeholder="예: icis/rater (비워두면 config.json 사용)" value="">
+                    </div>
+                    <div class="checkbox-field">
+                        <input type="checkbox" id="includeSubgroups" checked>
+                        <label for="includeSubgroups">서브그룹 포함</label>
+                    </div>
+                </div>
+            </div>
+
             <div class="header-actions">
                 <button class="action-btn btn-refresh" onclick="refreshDashboard()">
                     🔄 대시보드 새로고침
                 </button>
                 <button class="action-btn btn-migrate" onclick="runMigration()">
                     🚀 마이그레이션 시작
+                </button>
+                <button class="action-btn btn-cleanup" onclick="runCleanup()">
+                    ⚠️ Cleanup (GitHub 저장소 삭제)
                 </button>
             </div>
             <div id="statusMessage" class="status-message"></div>
@@ -814,6 +907,7 @@ class MigrationDashboard:
         function disableButtons(disabled) {
             document.querySelector('.btn-refresh').disabled = disabled;
             document.querySelector('.btn-migrate').disabled = disabled;
+            document.querySelector('.btn-cleanup').disabled = disabled;
         }
 
         async function refreshDashboard() {
@@ -870,6 +964,58 @@ class MigrationDashboard:
                     checkMigrationStatus();
                 } else {
                     showMessage('오류: ' + (data.message || '마이그레이션 시작 실패'), 'error');
+                    disableButtons(false);
+                }
+            } catch (error) {
+                showMessage('서버 연결 실패: dashboard_server.py가 실행 중인지 확인하세요.', 'error');
+                disableButtons(false);
+            }
+        }
+
+        async function runCleanup() {
+            const groupPath = document.getElementById('groupPath').value.trim();
+            const includeSubgroups = document.getElementById('includeSubgroups').checked;
+
+            const confirmMessage = groupPath
+                ? `⚠️ 경고: GitHub 저장소 일괄 삭제를 시작합니다!\\n\\n그룹 경로: ${groupPath}\\n서브그룹 포함: ${includeSubgroups ? '예' : '아니오'}\\n\\n이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?`
+                : '⚠️ 경고: GitHub 저장소 일괄 삭제를 시작합니다!\\n\\nconfig.json의 설정을 사용합니다.\\n\\n이 작업은 되돌릴 수 없습니다. 계속하시겠습니까?';
+
+            if (!confirm(confirmMessage)) {
+                return;
+            }
+
+            // 이중 확인
+            const confirmText = prompt('정말로 삭제하시겠습니까? "DELETE"를 정확히 입력하세요:');
+            if (confirmText !== 'DELETE') {
+                showMessage('Cleanup이 취소되었습니다.', 'info');
+                return;
+            }
+
+            showMessage('Cleanup을 시작하는 중...', 'info');
+            disableButtons(true);
+
+            try {
+                const response = await fetch('/api/cleanup', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        group_path: groupPath || null,
+                        include_subgroups: includeSubgroups
+                    })
+                });
+
+                const data = await response.json();
+
+                if (response.ok && data.status === 'started') {
+                    showMessage('Cleanup이 백그라운드에서 시작되었습니다. 완료까지 시간이 걸릴 수 있습니다.', 'success');
+                    disableButtons(false);
+                } else if (response.ok && data.status === 'success') {
+                    showMessage('Cleanup이 완료되었습니다. ' + data.message, 'success');
+                    disableButtons(false);
+                } else {
+                    showMessage('오류: ' + (data.message || 'Cleanup 시작 실패'), 'error');
                     disableButtons(false);
                 }
             } catch (error) {

@@ -10,9 +10,19 @@ import json
 import subprocess
 import os
 import sys
+import io
 import urllib.parse
 import threading
 import time
+
+
+# Windows 콘솔 UTF-8 인코딩 설정
+if sys.platform == 'win32':
+    try:
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+    except Exception:
+        pass
 
 
 class MigrationHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
@@ -28,13 +38,15 @@ class MigrationHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
         return super().do_GET()
 
     def do_POST(self):
-        """POST 요청 처리 (refresh, migrate 실행)"""
+        """POST 요청 처리 (refresh, migrate, cleanup 실행)"""
         parsed_path = urllib.parse.urlparse(self.path)
 
         if parsed_path.path == '/api/refresh':
             self._handle_refresh()
         elif parsed_path.path == '/api/migrate':
             self._handle_migrate()
+        elif parsed_path.path == '/api/cleanup':
+            self._handle_cleanup()
         elif parsed_path.path == '/api/status':
             self._handle_status()
         else:
@@ -94,6 +106,52 @@ class MigrationHTTPRequestHandler(http.server.SimpleHTTPRequestHandler):
             self._send_json_response(202, {
                 'status': 'started',
                 'message': '마이그레이션이 백그라운드에서 시작되었습니다. 완료되면 대시보드가 자동으로 업데이트됩니다.'
+            })
+
+        except Exception as e:
+            self._send_json_response(500, {
+                'status': 'error',
+                'message': f'오류 발생: {str(e)}'
+            })
+
+    def _handle_cleanup(self):
+        """Cleanup 처리 (백그라운드 실행)"""
+        try:
+            # 요청 본문 읽기 (group_path, include_subgroups)
+            content_length = int(self.headers.get('Content-Length', 0))
+            if content_length > 0:
+                body = self.rfile.read(content_length).decode('utf-8')
+                params = json.loads(body)
+            else:
+                params = {}
+
+            group_path = params.get('group_path')
+            include_subgroups = params.get('include_subgroups', True)
+
+            def run_cleanup():
+                # cleanup_github.py를 명령행 인자와 함께 실행
+                cmd = [sys.executable, 'cleanup_github.py']
+
+                # group_path가 제공되면 -g 옵션 추가
+                if group_path:
+                    cmd.extend(['-g', group_path])
+                    # include_subgroups 옵션 추가
+                    if not include_subgroups:
+                        cmd.append('--no-subgroups')
+
+                subprocess.run(
+                    cmd,
+                    capture_output=True,
+                    text=True
+                )
+
+            # 백그라운드 스레드에서 실행
+            thread = threading.Thread(target=run_cleanup, daemon=True)
+            thread.start()
+
+            self._send_json_response(202, {
+                'status': 'started',
+                'message': 'Cleanup이 백그라운드에서 시작되었습니다. 터미널에서 진행 상황을 확인하세요.'
             })
 
         except Exception as e:
