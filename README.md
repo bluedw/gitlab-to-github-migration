@@ -19,7 +19,7 @@ GitLab 저장소를 GitHub로 일괄 이관하는 Python 도구입니다. **표�
 
 ## 제공 도구
 
-이 프로젝트는 5개의 독립 실행 도구를 제공합니다:
+이 프로젝트는 6개의 독립 실행 도구를 제공합니다:
 
 1. **list_projects.py** - GitLab 그룹 프로젝트 목록 조회
    - 그룹 하위의 모든 프로젝트 정보를 터미널에 출력
@@ -35,12 +35,17 @@ GitLab 저장소를 GitHub로 일괄 이관하는 Python 도구입니다. **표�
    - GitLab → GitHub 저장소 이관
    - Dry run 모드 지원
 
-4. **check_sync.py** - 동기화 상태 확인 ✨ NEW
+4. **check_sync.py** - 동기화 상태 확인
    - GitLab vs GitHub 브랜치/태그 개수 비교
    - 각 브랜치별 커밋 상태 확인
    - Behind 상세정보 (커밋 차이, 커밋 목록)
 
-5. **cleanup_github.py** - GitHub 저장소 일괄 삭제 ⚠️
+5. **dashboard.py** - 이관 대시보드 ✨ NEW
+   - 이관 상태를 HTML 대시보드로 시각화
+   - 브랜치별 상태 확인 (completed, not created, sync needed)
+   - 통계 요약 및 필터링 기능
+
+6. **cleanup_github.py** - GitHub 저장소 일괄 삭제 ⚠️
    - 기존 GitHub 저장소들을 일괄 삭제
    - 재이관 전 정리 작업
    - 안전 확인 절차 포함
@@ -673,6 +678,158 @@ python check_sync.py
 3. **태그 누락**
    - `git push --tags`로 태그만 푸시
    - 또는 저장소 재이관
+
+## 이관 대시보드 (dashboard.py)
+
+마이그레이션 상태를 시각적으로 확인할 수 있는 HTML 대시보드를 생성합니다.
+
+### 기능
+
+- 📊 **통계 요약** - 전체 대상, 이관 완료, 미완료, 동기화 필요 개수 표시
+- 📋 **브랜치별 상세 정보** - GitLab/GitHub 브랜치별 커밋 비교
+- 🎨 **시각적 대시보드** - 컬러풀하고 직관적인 HTML 인터페이스
+- 🔍 **필터링 기능** - 상태별로 결과 필터링 (전체/완료/미완료/동기화 필요)
+- 🔄 **자동 스캔** - config.json의 scan_groups 자동 처리
+
+### 기본 사용법
+
+```bash
+# config.json의 모든 저장소 상태 확인하고 대시보드 생성
+python dashboard.py
+
+# 특정 설정 파일 사용
+python dashboard.py my_config.json
+
+# 출력 파일 이름 지정
+python dashboard.py config.json my_dashboard.html
+```
+
+### 출력 내용
+
+#### 터미널 출력
+```
+╔══════════════════════════════════════════════════════════╗
+║     GitLab to GitHub Migration Dashboard                ║
+║     이관 상태 확인 및 대시보드 생성                      ║
+╚══════════════════════════════════════════════════════════╝
+
+그룹 스캔 중...
+  그룹 'icis/rater': 15개 프로젝트 발견
+
+총 15개 저장소 상태 확인 중...
+
+[1/15] dag-manager 확인 중...
+[2/15] data-processor 확인 중...
+...
+
+=== 통계 요약 ===
+전체 대상: 15
+이관 완료: 10
+이관 대상 미완료: 3
+동기화 필요: 2
+
+대시보드 생성 완료: dashboard.html
+```
+
+#### HTML 대시보드
+
+생성된 `dashboard.html` 파일을 브라우저에서 열면:
+
+**통계 카드 (4개)**
+```
+┌──────────────┐ ┌──────────────┐ ┌──────────────┐ ┌──────────────┐
+│ 전체 대상    │ │ 이관 완료    │ │ 이관대상미완료│ │ 동기화 필요  │
+│     15       │ │     10       │ │      3       │ │      2       │
+└──────────────┘ └──────────────┘ └──────────────┘ └──────────────┘
+```
+
+**필터 버튼**
+- [전체 보기] [이관 완료] [미완료] [동기화 필요]
+
+**상세 테이블**
+| GitLab Project | GitHub Repository | Branch | GitLab Commit | GitHub Commit | Status |
+|----------------|-------------------|--------|---------------|---------------|--------|
+| icis/rater/dag-manager | my-org/dag-manager | main | a1b2c3d | a1b2c3d | completed |
+| icis/rater/dag-manager | my-org/dag-manager | develop | e5f6g7h | e5f6g7h | completed |
+| icis/rater/processor | my-org/processor | main | i9j0k1l | - | not created |
+| icis/rater/engine | my-org/engine | feature/api | m3n4o5p | q7r8s9t | sync needed |
+
+### 상태 설명
+
+- **completed** (초록색) - GitHub 저장소가 존재하고 커밋이 일치
+- **not created** (빨간색) - GitHub 저장소가 아직 생성되지 않음
+- **sync needed** (주황색) - GitHub 저장소는 있지만 커밋이 다름
+
+### 대시보드 특징
+
+1. **반응형 디자인** - 모바일/태블릿/데스크톱 모두 지원
+2. **실시간 필터링** - JavaScript로 클라이언트 측 필터링
+3. **링크 제공** - GitHub 저장소로 직접 이동 가능
+4. **컬러 코딩** - 상태별로 다른 색상 표시
+5. **자동 새로고침 시간** - 마지막 업데이트 시간 표시
+
+### 사용 시나리오
+
+#### 시나리오 1: 마이그레이션 진행 상황 모니터링
+```bash
+# 1. 마이그레이션 시작
+python migrate.py
+
+# 2. 대시보드 생성하여 진행 상황 확인
+python dashboard.py
+
+# 3. 브라우저에서 dashboard.html 열기
+# 4. 주기적으로 재실행하여 진행 상황 업데이트
+```
+
+#### 시나리오 2: 관리자에게 보고
+```bash
+# 대시보드 생성
+python dashboard.py
+
+# dashboard.html을 이메일에 첨부하거나 공유
+# 또는 웹 서버에 호스팅하여 실시간 공유
+```
+
+#### 시나리오 3: 문제 있는 저장소 식별
+```bash
+# 대시보드 생성
+python dashboard.py
+
+# 브라우저에서 열어서 "미완료" 또는 "동기화 필요" 필터 클릭
+# 문제가 있는 저장소만 확인하고 수정
+```
+
+### 주의사항
+
+- 📊 **API 호출** - 모든 저장소와 브랜치 정보를 조회하므로 시간이 소요될 수 있습니다
+- ⏱️ **실행 시간** - 저장소가 많을 경우 수 분 소요될 수 있습니다
+- 🔄 **자동 갱신 없음** - 대시보드는 정적 HTML이므로 최신 상태를 보려면 재실행 필요
+- 🔐 **권한 필요** - GitLab read_repository, GitHub repo 권한 필요
+
+### 웹 서버로 호스팅 (선택사항)
+
+대시보드를 팀과 공유하려면 간단한 웹 서버로 호스팅할 수 있습니다:
+
+```bash
+# Python 내장 웹 서버 사용
+python -m http.server 8000
+
+# 브라우저에서 열기
+# http://localhost:8000/dashboard.html
+```
+
+### 정기적 업데이트 자동화 (선택사항)
+
+cron job이나 스케줄러로 주기적으로 대시보드를 업데이트할 수 있습니다:
+
+```bash
+# Linux/macOS crontab 예시 (매 시간마다 실행)
+0 * * * * cd /path/to/github_mig && python dashboard.py
+
+# Windows Task Scheduler
+# dashboard.py를 주기적으로 실행하도록 설정
+```
 
 ## GitLab 프로젝트 ID/경로 찾기
 

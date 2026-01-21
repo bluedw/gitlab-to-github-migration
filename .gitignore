@@ -46,3 +46,6 @@ Thumbs.db
 *.log
 *.tmp
 .cache/
+
+# 대시보드 (선택사항: 팀과 공유하려면 이 줄을 삭제)
+dashboard.html
