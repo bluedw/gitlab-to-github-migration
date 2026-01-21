@@ -747,7 +747,7 @@ class GitLabToGitHubMigrator:
             self.logger.warning(f"임시 디렉토리 삭제 실패: {e}")
             self.logger.warning(f"수동 삭제 필요: {temp_dir}")
 
-    def migrate_repository(self, repo_config: Dict) -> bool:
+    def migrate_repository(self, repo_config: Dict) -> Dict:
         """
         단일 저장소를 이관
 
@@ -755,11 +755,20 @@ class GitLabToGitHubMigrator:
             repo_config: 저장소 설정
 
         Returns:
-            성공 여부
+            이관 결과 딕셔너리 (status, gitlab_project_path, github_repo_name, etc.)
         """
         gitlab_project_id = repo_config.get('gitlab_project_id')
         gitlab_project_path = repo_config.get('gitlab_project_path')
         github_repo_name = repo_config['github_repo_name']
+
+        result = {
+            'gitlab_project_path': gitlab_project_path or str(gitlab_project_id),
+            'github_repo_name': github_repo_name,
+            'github_repo_url': None,
+            'status': 'failed',
+            'error_message': None,
+            'timestamp': datetime.datetime.now().isoformat()
+        }
 
         self.logger.info(f"\n{'='*60}")
         self.logger.info(f"이관 시작: {github_repo_name}")
@@ -774,14 +783,21 @@ class GitLabToGitHubMigrator:
             gl_project = self.gitlab.get_project(project_identifier)
             self.logger.success(f"GitLab 프로젝트 발견: {gl_project['path_with_namespace']}")
 
+            result['gitlab_project_path'] = gl_project['path_with_namespace']
+
             # Dry run 모드 확인
             if self.config['options'].get('dry_run', False):
                 self.logger.warning("DRY RUN 모드: 실제 이관을 수행하지 않습니다")
                 self.logger.info(f"이관 대상: {gl_project['http_url_to_repo']} → {github_repo_name}")
-                return True
+                result['status'] = 'dry_run'
+                org_name = self.config['github'].get('organization')
+                owner = org_name if org_name else self.github.user['login']
+                result['github_repo_url'] = f"https://github.com/{owner}/{github_repo_name}"
+                return result
 
             # 2. GitHub 저장소 생성
             gh_repo = self._create_github_repo(repo_config, gl_project)
+            result['github_repo_url'] = gh_repo['html_url']
 
             # 2-1. GitHub 저장소 권한 부여 (collaborators, teams)
             self._grant_repository_permissions(gh_repo, repo_config)
@@ -821,13 +837,16 @@ class GitLabToGitHubMigrator:
 
             self.logger.success(f"이관 완료: {gh_repo['html_url']}")
 
-            return True
+            result['status'] = 'success'
+            return result
 
         except Exception as e:
             self.logger.error(f"이관 실패: {e}")
             import traceback
             traceback.print_exc()
-            return False
+            result['status'] = 'failed'
+            result['error_message'] = str(e)
+            return result
         finally:
             # 임시 디렉토리 정리
             if self.temp_dir and os.path.exists(self.temp_dir):
@@ -1067,6 +1086,58 @@ class GitLabToGitHubMigrator:
 
         return all_repos
 
+    def _save_migration_results(self, results: List[Dict]):
+        """
+        이관 결과를 JSON 파일로 저장
+
+        Args:
+            results: 이관 결과 리스트
+        """
+        output_file = 'migration_results.json'
+
+        try:
+            data = {
+                'timestamp': datetime.datetime.now().isoformat(),
+                'total': len(results),
+                'success': sum(1 for r in results if r['status'] == 'success'),
+                'failed': sum(1 for r in results if r['status'] == 'failed'),
+                'dry_run': sum(1 for r in results if r['status'] == 'dry_run'),
+                'results': results
+            }
+
+            with open(output_file, 'w', encoding='utf-8') as f:
+                json.dump(data, f, indent=2, ensure_ascii=False)
+
+            self.logger.success(f"\n이관 결과 저장 완료: {output_file}")
+        except Exception as e:
+            self.logger.error(f"이관 결과 저장 실패: {e}")
+
+    def _generate_dashboard(self):
+        """
+        대시보드 자동 생성
+        """
+        try:
+            self.logger.info("\n대시보드 생성 중...")
+
+            # dashboard.py를 subprocess로 실행
+            result = subprocess.run(
+                [sys.executable, 'dashboard.py'],
+                capture_output=True,
+                text=True,
+                timeout=300  # 5분 타임아웃
+            )
+
+            if result.returncode == 0:
+                self.logger.success("대시보드 생성 완료: dashboard.html")
+            else:
+                self.logger.error(f"대시보드 생성 실패: {result.stderr}")
+        except subprocess.TimeoutExpired:
+            self.logger.error("대시보드 생성 시간 초과 (5분)")
+        except FileNotFoundError:
+            self.logger.warning("dashboard.py 파일을 찾을 수 없습니다. 대시보드 생성을 건너뜁니다.")
+        except Exception as e:
+            self.logger.error(f"대시보드 생성 중 오류: {e}")
+
     def migrate_all(self):
         """모든 저장소 이관"""
         # 그룹 스캔 여부 확인
@@ -1090,12 +1161,19 @@ class GitLabToGitHubMigrator:
 
         success_count = 0
         fail_count = 0
+        dry_run_count = 0
+        migration_results = []
 
         for idx, repo_config in enumerate(repositories, 1):
             self.logger.info(f"\n[{idx}/{len(repositories)}] 처리 중...")
 
-            if self.migrate_repository(repo_config):
+            result = self.migrate_repository(repo_config)
+            migration_results.append(result)
+
+            if result['status'] == 'success':
                 success_count += 1
+            elif result['status'] == 'dry_run':
+                dry_run_count += 1
             else:
                 fail_count += 1
 
@@ -1108,8 +1186,17 @@ class GitLabToGitHubMigrator:
         self.logger.info("이관 완료")
         self.logger.info(f"{'='*60}")
         self.logger.success(f"성공: {success_count}개")
+        if dry_run_count > 0:
+            self.logger.warning(f"Dry Run: {dry_run_count}개")
         if fail_count > 0:
             self.logger.error(f"실패: {fail_count}개")
+
+        # 결과를 JSON 파일로 저장
+        self._save_migration_results(migration_results)
+
+        # 대시보드 자동 생성 (dry_run이 아닌 경우에만)
+        if not self.config['options'].get('dry_run', False):
+            self._generate_dashboard()
 
 
 def main():

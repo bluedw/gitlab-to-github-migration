@@ -321,6 +321,10 @@ python migrate.py
 python migrate.py
 ```
 
+마이그레이션이 완료되면:
+- `migration_results.json` - 이관 결과가 자동 저장됨
+- `dashboard.html` - 대시보드가 자동 생성됨 (dry_run이 아닌 경우)
+
 ### 마이그레이션 시 자동 수행 작업
 
 마이그레이션 도구는 각 저장소를 이관할 때 다음 작업을 자동으로 수행합니다:
@@ -334,6 +338,8 @@ python migrate.py
    - **필수 권한**: GitHub 토큰에 `repo` scope 필요
    - 권한 부족 시: topic 추가는 실패하지만 마이그레이션은 계속 진행
 5. **Git 히스토리 푸시** - 모든 커밋, 브랜치, 태그 푸시
+6. **결과 저장** - `migration_results.json`에 이관 결과 저장
+7. **대시보드 자동 생성** - 이관 완료 후 `dashboard.html` 자동 생성 (dry_run 제외)
 
 #### GitLab namespace topic 활용 예시
 
@@ -702,7 +708,15 @@ python dashboard.py my_config.json
 
 # 출력 파일 이름 지정
 python dashboard.py config.json my_dashboard.html
+
+# API를 다시 조회하여 최신 상태 확인 (migration_results.json 무시)
+python dashboard.py --refresh
 ```
+
+**동작 방식:**
+- `migration_results.json` 파일이 있으면 API 조회 없이 빠르게 대시보드 생성
+- 파일이 없거나 `--refresh` 옵션 사용 시 GitLab/GitHub API를 조회
+- `migrate.py` 실행 후 자동으로 대시보드가 생성됨 (dry_run 제외)
 
 ### 출력 내용
 

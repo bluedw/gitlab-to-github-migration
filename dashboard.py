@@ -707,6 +707,58 @@ class MigrationDashboard:
         print(f"\n대시보드 생성 완료: {output_path}")
 
 
+def load_migration_results(results_file: str = 'migration_results.json') -> Optional[Tuple[List[Dict], Dict]]:
+    """
+    저장된 이관 결과 JSON 파일 로드
+
+    Returns:
+        (details, statistics) 튜플 또는 None
+    """
+    if not os.path.exists(results_file):
+        return None
+
+    try:
+        with open(results_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+
+        print(f"\n✓ 저장된 이관 결과 파일을 발견했습니다: {results_file}")
+        print(f"  생성 시간: {data.get('timestamp', 'Unknown')}")
+
+        # migration_results.json의 결과를 dashboard 형식으로 변환
+        details = []
+        for result in data.get('results', []):
+            # 상태별로 다르게 처리
+            if result['status'] == 'success':
+                status = 'completed'
+            elif result['status'] == 'failed':
+                status = 'error'
+            else:  # dry_run
+                status = 'not created'
+
+            # 브랜치 정보가 없으므로 기본값 사용
+            details.append({
+                'gitlab_project': result['gitlab_project_path'],
+                'github_repository': result['github_repo_url'].replace('https://github.com/', '') if result['github_repo_url'] else '-',
+                'branch': 'N/A',
+                'gitlab_commit': '-',
+                'github_commit': '-' if result['status'] != 'success' else 'migrated',
+                'status': status
+            })
+
+        statistics = {
+            'total': data.get('total', 0),
+            'completed': data.get('success', 0),
+            'not_created': data.get('dry_run', 0) + data.get('failed', 0),
+            'sync_needed': 0
+        }
+
+        return details, statistics
+
+    except Exception as e:
+        print(f"⚠ 이관 결과 파일 로드 실패: {e}")
+        return None
+
+
 def main():
     """메인 함수"""
     print("""
@@ -716,10 +768,38 @@ def main():
 ╚══════════════════════════════════════════════════════════╝
 """)
 
-    config_path = sys.argv[1] if len(sys.argv) > 1 else 'config.json'
-    output_path = sys.argv[2] if len(sys.argv) > 2 else 'dashboard.html'
+    # 인자 파싱
+    args = sys.argv[1:]
+    force_refresh = '--refresh' in args
+    if force_refresh:
+        args.remove('--refresh')
+
+    config_path = args[0] if len(args) > 0 else 'config.json'
+    output_path = args[1] if len(args) > 1 else 'dashboard.html'
+    results_file = 'migration_results.json'
 
     try:
+        # migration_results.json 파일이 있고 --refresh 옵션이 없으면 JSON에서 로드
+        if not force_refresh:
+            cached_data = load_migration_results(results_file)
+            if cached_data:
+                details, statistics = cached_data
+                print("  ℹ API 조회 없이 저장된 결과를 사용합니다.")
+                print("  ℹ API를 다시 조회하려면 --refresh 옵션을 사용하세요.")
+
+                print("\n=== 통계 요약 ===")
+                print(f"전체 대상: {statistics['total']}")
+                print(f"이관 완료: {statistics['completed']}")
+                print(f"이관 대상 미완료: {statistics['not_created']}")
+                print(f"동기화 필요: {statistics['sync_needed']}")
+
+                # HTML 생성을 위해 임시 dashboard 객체 생성
+                dashboard = MigrationDashboard(config_path)
+                dashboard.generate_html_dashboard(details, statistics, output_path)
+                return
+
+        # JSON 파일이 없거나 --refresh 옵션이 있으면 API 조회
+        print("API를 통해 최신 상태를 조회합니다...")
         dashboard = MigrationDashboard(config_path)
         details, statistics = dashboard.check_migration_status()
 

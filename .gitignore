@@ -47,5 +47,6 @@ Thumbs.db
 *.tmp
 .cache/
 
-# 대시보드 (선택사항: 팀과 공유하려면 이 줄을 삭제)
+# 이관 결과 및 대시보드 (선택사항: 팀과 공유하려면 이 줄을 삭제)
+migration_results.json
 dashboard.html
