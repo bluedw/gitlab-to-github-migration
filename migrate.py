@@ -855,7 +855,12 @@ class GitLabToGitHubMigrator:
     def _create_github_repo(self, repo_config: Dict, gl_project: Dict) -> Dict:
         """GitHub 저장소 생성"""
         github_repo_name = repo_config['github_repo_name']
-        description = repo_config.get('description', gl_project.get('description', ''))
+        # Description을 GitLab web URL로 설정
+        gitlab_url = gl_project.get('web_url', '')
+        if gitlab_url:
+            description = f"Migrated from GitLab: {gitlab_url}"
+        else:
+            description = repo_config.get('description', gl_project.get('description', ''))
         private = repo_config.get('private', True)
         org_name = self.config['github'].get('organization')
 
